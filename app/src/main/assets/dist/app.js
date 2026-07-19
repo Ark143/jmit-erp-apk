@@ -9,6 +9,7 @@ import { renderAccounting } from "./views/accounting.js";
 import { renderFinance } from "./views/finance.js";
 import { renderReports } from "./views/reports.js";
 import { renderSettings } from "./views/settings.js";
+import { renderBIR } from "./views/bir-reports.js";
 // Global Module View Mappings
 const MODULES = {
     dashboard: renderDashboard,
@@ -18,7 +19,8 @@ const MODULES = {
     accounting: renderAccounting,
     finance: renderFinance,
     reports: renderReports,
-    settings: renderSettings
+    settings: renderSettings,
+    bir: renderBIR
 };
 // Global DOM Elements
 const appViewport = document.getElementById("app-viewport");
