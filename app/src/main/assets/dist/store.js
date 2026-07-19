@@ -992,6 +992,20 @@ class Store {
         if (reqs.soApproval !== false && so.status !== "Approved") {
             throw new Error("Sales Order must be Approved before shipping items");
         }
+        // Duplicate prevention: check if all SO items already fully delivered
+        const existingDNs = this.state.deliveries.filter(d => d.salesOrderId === dnData.salesOrderId);
+        for (const line of dnData.items) {
+            const soItem = so.items.find((i) => i.itemId === line.itemId);
+            if (!soItem)
+                continue;
+            const totalDelivered = existingDNs.reduce((sum, dn) => {
+                const dnLine = dn.items.find((l) => l.itemId === line.itemId);
+                return sum + (dnLine ? dnLine.qty : 0);
+            }, 0);
+            if (totalDelivered >= soItem.qty) {
+                throw new Error(`Item ${soItem.sku || line.itemId} already fully delivered (${totalDelivered}/${soItem.qty}). Cannot create further delivery.`);
+            }
+        }
         const newDn = {
             id,
             salesOrderId: dnData.salesOrderId,
@@ -1338,6 +1352,20 @@ class Store {
         if (reqs.poApproval !== false && po.status !== "Approved") {
             throw new Error("Purchase Order must be Approved before receiving goods");
         }
+        // Duplicate prevention: check if all PO items already fully received
+        const existingGRNs = this.state.goodsReceipts.filter(g => g.purchaseOrderId === grnData.purchaseOrderId);
+        for (const line of grnData.items) {
+            const poItem = po.items.find((i) => i.itemId === line.itemId);
+            if (!poItem)
+                continue;
+            const totalReceived = existingGRNs.reduce((sum, grn) => {
+                const grnLine = grn.items.find((l) => l.itemId === line.itemId);
+                return sum + (grnLine ? grnLine.acceptedQty : 0);
+            }, 0);
+            if (totalReceived >= poItem.qty) {
+                throw new Error(`Item ${poItem.sku || line.itemId} already fully received (${totalReceived}/${poItem.qty}). Cannot create further GRN.`);
+            }
+        }
         const newGrn = {
             id,
             purchaseOrderId: po.id,
@@ -1608,6 +1636,19 @@ class Store {
         const date = payData.date || new Date().toISOString().split("T")[0];
         if (this.isPeriodClosed(date))
             throw new Error("Posting date falls within a closed fiscal period!");
+        // Duplicate prevention: check if referenced invoice already fully paid
+        if (payData.referenceInvoiceId) {
+            if (payData.type === "Receive") {
+                const inv = this.state.salesInvoices.find(s => s.id === payData.referenceInvoiceId);
+                if (inv && inv.status === "Paid")
+                    throw new Error("This invoice is already fully paid. Cannot create duplicate payment.");
+            }
+            else {
+                const inv = this.state.purchaseInvoices.find(p => p.id === payData.referenceInvoiceId);
+                if (inv && inv.status === "Paid")
+                    throw new Error("This invoice is already fully paid. Cannot create duplicate payment.");
+            }
+        }
         const id = "PAY-2026-" + String(this.state.payments.length + 1).padStart(3, "0");
         const reqs = this.state.settings.workflowRequirements || {};
         const newPay = {
