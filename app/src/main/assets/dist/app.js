@@ -10,6 +10,12 @@ import { renderFinance } from "./views/finance.js";
 import { renderReports } from "./views/reports.js";
 import { renderSettings } from "./views/settings.js";
 import { renderBIR } from "./views/bir-reports.js";
+// Support Android native print bridge if running in the APK WebView wrapper
+if (typeof window !== "undefined" && window.AndroidPrint) {
+    window.print = function () {
+        window.AndroidPrint.print();
+    };
+}
 // Global Module View Mappings
 const MODULES = {
     dashboard: renderDashboard,

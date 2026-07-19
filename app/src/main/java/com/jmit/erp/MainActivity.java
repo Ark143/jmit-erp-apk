@@ -40,6 +40,26 @@ public class MainActivity extends Activity {
         // (delete confirms in the app depend on confirm()).
         webView.setWebChromeClient(new WebChromeClient());
 
+        // Add native print bridge interface
+        webView.addJavascriptInterface(new Object() {
+            @android.webkit.JavascriptInterface
+            public void print() {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.KITKAT) {
+                            android.print.PrintManager printManager = (android.print.PrintManager) getSystemService(android.content.Context.PRINT_SERVICE);
+                            if (printManager != null) {
+                                String jobName = "JMIT ERP Document";
+                                android.print.PrintDocumentAdapter printAdapter = webView.createPrintDocumentAdapter(jobName);
+                                printManager.print(jobName, printAdapter, new android.print.PrintAttributes.Builder().build());
+                            }
+                        }
+                    }
+                });
+            }
+        }, "AndroidPrint");
+
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
