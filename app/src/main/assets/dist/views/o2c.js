@@ -50,10 +50,12 @@ export function renderO2C(container, pathParts) {
 // --- 1. SALES ORDERS VIEW RENDERERS ---
 function renderSalesOrdersList(container) {
     const salesOrders = [...store.getSalesOrders()].reverse();
+    window.__csvDataSo = store.getSalesOrders().map((o) => [o.id, o.customerName, o.date, o.currency, String(o.total), o.status]);
     container.innerHTML = `
     <div class="card animate-fade-in">
       <div class="card-header">
         <h3 class="card-title">Sales Orders Register Ledger</h3>
+        <button id="csvDataSo" class="btn btn-outline btn-sm no-print" onclick="var d=window.__csvDataSo;if(d)window.__exportCSV('sales-orders.csv',["SO#","Customer","Date","Currency","Total","Status"],d)">🔽 Export CSV</button>
         <button onclick="window.location.hash='#o2c/sales-orders/new'" class="btn btn-success btn-sm">
           + Create Sales Order
         </button>
@@ -98,7 +100,7 @@ function renderSalesOrderForm(container) {
     const items = store.getItems();
     const rates = store.getExchangeRates();
     const activeCompany = store.getActiveCompany();
-    let customerOptions = customers.map(c => `<option value="${c.id}">${c.name} (TIN: ${c.taxId || "N/A"})</option>`).join("");
+    let customerOptions = customers.map(c => `<option value="${c.id}">${c.name} (TIN: ${c.taxId})</option>`).join("");
     let itemOptions = items.map(i => `<option value="${i.id}">${i.name} (${formatMoney(i.price)})</option>`).join("");
     container.innerHTML = `
     <div class="card animate-fade-in">
@@ -106,7 +108,6 @@ function renderSalesOrderForm(container) {
         <h3 class="card-title">New Sales Order Form</h3>
         <button onclick="window.location.hash='#o2c/sales-orders'" class="btn btn-outline btn-sm">Back to Ledger</button>
       </div>
-      
       <form id="sales-order-form">
         <div class="form-group" style="margin-bottom:16px;">
           <label class="form-label">Transaction Type</label>
@@ -135,8 +136,7 @@ function renderSalesOrderForm(container) {
               <input type="text" id="so-address" class="form-control" placeholder="100 Ayala Avenue, Makati City" required />
             </div>
           </div>
-          
-          <div>
+              <div>
             <div class="form-row">
               <div class="form-group">
                 <label class="form-label">Billing Currency</label>
@@ -188,11 +188,10 @@ function renderSalesOrderForm(container) {
               <input type="number" id="so-wht-amt" class="form-control" value="0" step="0.01" min="0" placeholder="0.00" />
             </div>
             <div style="border: 1px solid var(--border-color); border-radius: 6px; padding: 8px; background: rgba(255,255,255,0.02); display:flex; align-items:center;">
-              <span style="font-size: 0.75rem; color: var(--text-secondary);">Sales GL: <strong id="so-salesacct-disp" style="font-family:monospace;">${(store.getSettings().glMappings || {}).salesAccount || '4100'}</strong></span>
+              <span style="font-size: 0.75rem; color: var(--text-secondary);">Sales GL: <strong id="so-salesacct-disp" style="font-family:monospace;">${store.getSettings().glMappings.salesAccount}</strong></span>
             </div>
           </div>
-          
-          <!-- Other Charges -->
+              <!-- Other Charges -->
           <div style="margin-bottom: 12px;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
               <label class="form-label" style="margin:0;">Other Charges</label>
@@ -212,11 +211,7 @@ function renderSalesOrderForm(container) {
               <tbody id="so-charges-body"></tbody>
             </table>
           </div>
-          
-          <div style="text-align: right; padding-top: 12px; border-top: 1px solid var(--border-color);">
-            <div style="margin-bottom: 8px;">
-              <button type="button" id="so-calc-btn" class="btn btn-primary btn-sm">&#8635; Calculate VAT / WTax / Charges</button>
-            </div>
+              <div style="text-align: right; padding-top: 12px; border-top: 1px solid var(--border-color);">
             <div style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 4px;">
               Subtotal: <strong id="so-subtotal">$0.00</strong>
             </div>
@@ -247,6 +242,7 @@ function renderSalesOrderForm(container) {
         </div>
       </form>
     </div>
+      
   `;
     const form = container.querySelector("#sales-order-form");
     const linesBody = container.querySelector("#so-lines-body");
@@ -278,7 +274,7 @@ function renderSalesOrderForm(container) {
                 }
             }
         });
-        const maps = store.getSettings().glMappings || {};
+        const maps = store.getSettings().glMappings;
         // Compute charges and auto-fill VAT/WHT from tagged GL accounts
         let otherTotal = 0;
         let autoVat = 0;
@@ -288,17 +284,9 @@ function renderSalesOrderForm(container) {
             const chargeVatPct = Number(row.querySelector(".charge-vat").value) || 0;
             const acctCode = row.querySelector(".charge-acct").value;
             const baseOn = row.querySelector(".charge-base").value;
-            let chargeTotal = 0;
-            if (amt === 0 && chargeVatPct > 0) {
-                // Rate-only row: apply rate % against the order items subtotal
-                const baseAmt = baseOn === 'gross' ? subtotal / (1 + chargeVatPct / 100) : subtotal;
-                chargeTotal = parseFloat((baseAmt * (chargeVatPct / 100)).toFixed(2));
-            }
-            else {
-                const baseAmt = baseOn === 'gross' ? amt / (1 + chargeVatPct / 100) : amt;
-                const chargeVat = parseFloat((baseAmt * (chargeVatPct / 100)).toFixed(2));
-                chargeTotal = parseFloat((baseAmt + chargeVat).toFixed(2));
-            }
+            const baseAmt = baseOn === 'gross' ? amt / (1 + chargeVatPct / 100) : amt;
+            const chargeVat = parseFloat((baseAmt * (chargeVatPct / 100)).toFixed(2));
+            const chargeTotal = parseFloat((baseAmt + chargeVat).toFixed(2));
             row.querySelector(".charge-total").textContent = formatMoney(chargeTotal);
             // Checkbox routing: VAT/WHT/Other
             const isVat = row.querySelector(".charge-isvat").checked;
@@ -398,16 +386,9 @@ function renderSalesOrderForm(container) {
     const whtAmtInp = container.querySelector("#so-wht-amt");
     vatAmtInp.addEventListener("input", updateTotals);
     whtAmtInp.addEventListener("input", updateTotals);
-    vatAmtInp.addEventListener("change", updateTotals);
-    whtAmtInp.addEventListener("change", updateTotals);
-    // Manual calculate button — recomputes VAT / WTax / Other Charges + totals
-    container.querySelector("#so-calc-btn").addEventListener("click", () => {
-        updateTotals();
-        window.showToast("Totals recalculated.", "success");
-    });
     // Other charges
     const chargesBody = container.querySelector("#so-charges-body");
-    const acctOptions = (store.getAccounts() || []).map(a => `<option value="${a.code}">${a.code} — ${a.name}</option>`).join("");
+    const acctOptions = store.getAccounts().map(a => `<option value="${a.code}">${a.code} — ${a.name}</option>`).join("");
     const addCharge = () => {
         const tr = document.createElement("tr");
         tr.className = "so-charge-row";
@@ -450,34 +431,10 @@ function renderSalesOrderForm(container) {
                 const baseOn = row.querySelector(".charge-base").value;
                 const isVat = row.querySelector(".charge-isvat").checked;
                 const isWht = row.querySelector(".charge-iswht").checked;
-                if (amt > 0 || vatPct > 0)
+                if (amt > 0)
                     otherCharges.push({ accountCode: acct, amount: amt, vatRate: vatPct, baseOn, isVat, isWht });
             });
-            const maps = store.getSettings().glMappings || {};
-            // Compute the portion of the VAT/WHT fields that was auto-filled from
-            // V/W-tagged charge rows — the store re-adds tagged charges itself, so
-            // we must send only the manual remainder to avoid double counting.
-            let submitSubtotal = 0;
-            lines.forEach(l => {
-                const item = store.getItem(l.itemId);
-                if (item)
-                    submitSubtotal += item.price * l.qty;
-            });
-            const chargeTotalOf = (ch) => {
-                const amt = Number(ch.amount) || 0;
-                const pct = Number(ch.vatRate) || 0;
-                const baseOn = ch.baseOn || 'net';
-                if (amt === 0 && pct > 0) {
-                    const baseAmt = baseOn === 'gross' ? submitSubtotal / (1 + pct / 100) : submitSubtotal;
-                    return parseFloat((baseAmt * pct / 100).toFixed(2));
-                }
-                const baseAmt = baseOn === 'gross' ? amt / (1 + pct / 100) : amt;
-                return parseFloat((baseAmt + (baseAmt * pct / 100)).toFixed(2));
-            };
-            const autoVat = otherCharges.reduce((s, ch) => ch.isVat ? s + chargeTotalOf(ch) : s, 0);
-            const autoWht = otherCharges.reduce((s, ch) => ch.isWht ? s + chargeTotalOf(ch) : s, 0);
-            const manualVat = Math.max(0, parseFloat(((Number(vatAmtInp.value) || 0) - autoVat).toFixed(2)));
-            const manualWht = Math.max(0, parseFloat(((Number(whtAmtInp.value) || 0) - autoWht).toFixed(2)));
+            const maps = store.getSettings().glMappings;
             const soData = {
                 companyId: form.querySelector("#so-company").value,
                 customerId: customerSelect.value,
@@ -485,8 +442,8 @@ function renderSalesOrderForm(container) {
                 items: lines,
                 currency: currencySelect.value,
                 rate: Number(rateInput.value),
-                taxAmount: manualVat,
-                whtAmount: manualWht,
+                taxAmount: Number(vatAmtInp.value) || 0,
+                whtAmount: Number(whtAmtInp.value) || 0,
                 salesAccountCode: maps.salesAccount,
                 otherCharges
             };
@@ -502,6 +459,24 @@ function renderSalesOrderForm(container) {
 function renderSalesOrderDetails(container, orderId) {
     const so = store.getSalesOrders().find(s => s.id === orderId);
     if (!so) {
+        const maps = store.getSettings().glMappings;
+        const sub = so.subtotal || 0;
+        const tax = so.tax || 0;
+        const wht = so.withholding || 0;
+        const cogs = so.items.reduce((s, i) => s + (store.getItem(i.itemId)?.cost || 0) * i.qty, 0);
+        const lines = [
+            { code: maps.arAccount, debit: so.total, credit: 0 },
+            { code: maps.whtAssetAccount, debit: wht, credit: 0 },
+            { code: so.salesAccountCode || maps.salesAccount, debit: 0, credit: sub },
+            { code: maps.taxAccount, debit: 0, credit: tax }
+        ];
+        (so.otherCharges || []).forEach(ch => {
+            if (ch.isVat || ch.isWht)
+                return;
+            lines.push({ code: ch.accountCode || "", debit: 0, credit: ch.total || 0 });
+        });
+        lines.push({ code: maps.cogsAccount, debit: cogs, credit: 0 });
+        lines.push({ code: maps.inventoryAccount, debit: 0, credit: cogs });
         container.innerHTML = `<div class="card"><p class="text-danger">Order not found.</p></div>`;
         return;
     }
@@ -520,7 +495,7 @@ function renderSalesOrderDetails(container, orderId) {
           <h3 class="card-title" style="margin-top: 4px;">Sales Order details</h3>
         </div>
         <div style="display: flex; gap: 10px;">
-          <button onclick="window.location.hash='#o2c/sales-orders'" class="btn btn-outline btn-sm">Back</button>
+          <button onclick="window.location.hash='#o2c/sales-orders'" class="btn btn-outline btn-sm">Back</button> <button onclick="window.print()" class="btn btn-outline btn-sm no-print">🖨️ Print</button>
           ${isDraft && canApprove ? `<button id="approve-so-btn" class="btn btn-primary btn-sm">Approve Sales Order</button>` : ''}
           ${isDraft && canDelete ? `<button id="delete-so-btn" class="btn btn-danger btn-sm">Cancel & Delete</button>` : ''}
           ${showDeliveryBtn ? `<button id="proceed-delivery-btn" class="btn btn-primary btn-sm">Ship Stock (Delivery Note)</button>` : ''}
@@ -532,7 +507,7 @@ function renderSalesOrderDetails(container, orderId) {
         <div>
           <div style="font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase;">Customer</div>
           <div style="font-size: 1.05rem; font-weight: 700; color: var(--text-primary); margin-top: 4px;">${so.customerName}</div>
-          <div class="text-muted" style="font-size: 0.8rem; margin-top: 2px;">Company TIN: ${store.getPartner(so.customerId)?.taxId || "N/A"}</div>
+          <div class="text-muted" style="font-size: 0.8rem; margin-top: 2px;">Company TIN: ${store.getPartner(so.customerId).taxId}</div>
         </div>
         <div>
           <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
@@ -599,15 +574,8 @@ function renderSalesOrderDetails(container, orderId) {
         const a = Number(ch.amount) || 0;
         const v = Number(ch.vatRate) || 0;
         const b = ch.baseOn || 'net';
-        let total = 0;
-        if (a === 0 && v > 0) {
-            const base = b === 'gross' ? (so.subtotal || 0) / (1 + v / 100) : (so.subtotal || 0);
-            total = parseFloat((base * v / 100).toFixed(2));
-        }
-        else {
-            const base = b === 'gross' ? a / (1 + v / 100) : a;
-            total = parseFloat((base + (base * v / 100)).toFixed(2));
-        }
+        const base = b === 'gross' ? a / (1 + v / 100) : a;
+        const total = parseFloat((base + (base * v / 100)).toFixed(2));
         const tag = ch.isVat ? ' [VAT]' : ch.isWht ? ' [WHT]' : '';
         return `
         <div style="display: flex; justify-content: space-between; font-size:0.8rem;">
@@ -663,11 +631,13 @@ function renderSalesOrderDetails(container, orderId) {
 // --- 2. DELIVERIES RENDERERS ---
 function renderDeliveriesList(container) {
     const deliveries = [...store.getDeliveries()].reverse();
+    window.__csvDataDn = store.getDeliveries().map((d) => [d.id, d.customerName, d.date, d.salesOrderId, d.status]);
     container.innerHTML = `
     <div class="card animate-fade-in">
       <div class="card-header">
         <h3 class="card-title">Delivery Notes Register Ledger</h3>
-      </div>
+        <button id="dn-csv-btn" class="btn btn-outline btn-sm no-print" onclick="var d=window.__csvDataDn;if(d)window.__exportCSV('delivery-notes.csv',["DN#","Customer","Date","SO#","Status"],d)">📥 Export CSV</button>
+        </div>
       <div class="table-container">
         <table>
           <thead>
@@ -804,11 +774,13 @@ function renderDeliveryForm(container) {
 // --- 3. SALES INVOICES RENDERERS ---
 function renderInvoicesList(container) {
     const invoices = [...store.getSalesInvoices()].reverse();
+    window.__csvDataSi = store.getSalesInvoices().map((i) => [i.id, i.customerName, i.date, i.salesOrderId, String(i.total), i.status]);
     container.innerHTML = `
     <div class="card animate-fade-in">
       <div class="card-header">
         <h3 class="card-title">Sales Invoices Book</h3>
-      </div>
+        <button id="si-csv-btn" class="btn btn-outline btn-sm no-print" onclick="var d=window.__csvDataSi;if(d)window.__exportCSV('sales-invoices.csv',["SI#","Customer","Date","SO#","Total","Status"],d)">📥 Export CSV</button>
+        </div>
       <div class="table-container">
         <table>
           <thead>
@@ -829,7 +801,7 @@ function renderInvoicesList(container) {
                 <td style="font-family: monospace; font-weight: 700; color: var(--color-primary);">${si.id}</td>
                 <td style="font-family: monospace;">${si.salesOrderId}</td>
                 <td><strong>${si.customerName}</strong></td>
-                <td>${store.getPartner(si.customerId)?.taxId || "N/A"}</td>
+                <td>${store.getPartner(si.customerId).taxId}</td>
                 <td>${si.date}</td>
                 <td style="font-weight: 700;">${formatMoney(si.total)}</td>
                 <td>
@@ -963,11 +935,13 @@ function renderInvoiceForm(container) {
 // --- 4. SALES RETURNS RENDERERS ---
 function renderReturnsList(container) {
     const returns = [...store.getSalesReturns()].reverse();
+    window.__csvDataSr = store.getSalesReturns().map((r) => [r.id, r.customerName, r.date, r.salesOrderId, String(r.total), r.status]);
     container.innerHTML = `
     <div class="card animate-fade-in">
       <div class="card-header">
         <h3 class="card-title">Customer Sales Returns Ledger</h3>
-        <button id="new-return-btn" class="btn btn-danger btn-sm">Record Return Refund</button>
+        <button id="sr-csv-btn" class="btn btn-outline btn-sm no-print" onclick="var d=window.__csvDataSr;if(d)window.__exportCSV('sales-returns.csv',["SR#","Customer","Date","SO#","Total","Status"],d)">📥 Export CSV</button>
+          <button id="new-return-btn" class="btn btn-danger btn-sm">Record Return Refund</button>
       </div>
       <div class="table-container">
         <table>
@@ -1011,7 +985,6 @@ function renderReturnForm(container) {
         <h3 class="card-title">Process Sales Return</h3>
         <button onclick="window.location.hash='#o2c/returns'" class="btn btn-outline btn-sm">Cancel</button>
       </div>
-      
       <form id="sales-return-form">
         <div class="grid-2">
           <div class="form-group">
@@ -1132,7 +1105,7 @@ function renderDeliveryDetails(container, deliveryId) {
           <h3 class="card-title" style="margin-top: 4px;">Delivery Note details</h3>
         </div>
         <div style="display: flex; gap: 10px;">
-          <button onclick="window.location.hash='#o2c/deliveries'" class="btn btn-outline btn-sm">Back</button>
+          <button onclick="window.location.hash='#o2c/deliveries'" class="btn btn-outline btn-sm">Back</button> <button onclick="window.print()" class="btn btn-outline btn-sm no-print">🖨️ Print</button>
           ${isDraft && canApprove ? `<button id="submit-dn-btn" class="btn btn-primary btn-sm" style="background-color:var(--color-inventory);">Submit Delivery Note</button>` : ''}
           ${isDraft && canDelete ? `<button id="delete-dn-btn" class="btn btn-danger btn-sm">Cancel & Delete</button>` : ''}
         </div>
@@ -1142,7 +1115,7 @@ function renderDeliveryDetails(container, deliveryId) {
         <div>
           <div style="font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase;">Customer</div>
           <div style="font-size: 1.05rem; font-weight: 700; color: var(--text-primary); margin-top: 4px;">${dn.customerName}</div>
-          <div class="text-muted" style="font-size: 0.8rem; margin-top: 2px;">Company TIN: ${store.getPartner(dn.customerId)?.taxId || "N/A"}</div>
+          <div class="text-muted" style="font-size: 0.8rem; margin-top: 2px;">Company TIN: ${store.getPartner(dn.customerId).taxId}</div>
         </div>
         <div>
           <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
@@ -1234,7 +1207,7 @@ function renderInvoiceDetails(container, invoiceId) {
           <h3 class="card-title" style="margin-top: 4px;">Sales Invoice details</h3>
         </div>
         <div style="display: flex; gap: 10px;">
-          <button onclick="window.location.hash='#o2c/invoices'" class="btn btn-outline btn-sm">Back</button>
+          <button onclick="window.location.hash='#o2c/invoices'" class="btn btn-outline btn-sm">Back</button> <button onclick="window.print()" class="btn btn-outline btn-sm no-print">🖨️ Print</button>
           ${isDraft && canApprove ? `<button id="submit-si-btn" class="btn btn-primary btn-sm">Submit Sales Invoice</button>` : ''}
           ${isDraft && canDelete ? `<button id="delete-si-btn" class="btn btn-danger btn-sm">Cancel & Delete</button>` : ''}
           ${showPayBtn ? `<button id="proceed-payment-btn" class="btn btn-success btn-sm">+ Collect Cash Receipt</button>` : ''}
@@ -1245,7 +1218,7 @@ function renderInvoiceDetails(container, invoiceId) {
         <div>
           <div style="font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase;">Customer</div>
           <div style="font-size: 1.05rem; font-weight: 700; color: var(--text-primary); margin-top: 4px;">${si.customerName}</div>
-          <div class="text-muted" style="font-size: 0.8rem; margin-top: 2px;">Company TIN: ${store.getPartner(si.customerId)?.taxId || "N/A"}</div>
+          <div class="text-muted" style="font-size: 0.8rem; margin-top: 2px;">Company TIN: ${store.getPartner(si.customerId).taxId}</div>
         </div>
         <div>
           <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
@@ -1316,15 +1289,8 @@ function renderInvoiceDetails(container, invoiceId) {
         const a = Number(ch.amount) || 0;
         const v = Number(ch.vatRate) || 0;
         const b = ch.baseOn || 'net';
-        let total = 0;
-        if (a === 0 && v > 0) {
-            const base = b === 'gross' ? (si.subtotal || 0) / (1 + v / 100) : (si.subtotal || 0);
-            total = parseFloat((base * v / 100).toFixed(2));
-        }
-        else {
-            const base = b === 'gross' ? a / (1 + v / 100) : a;
-            total = parseFloat((base + (base * v / 100)).toFixed(2));
-        }
+        const base = b === 'gross' ? a / (1 + v / 100) : a;
+        const total = parseFloat((base + (base * v / 100)).toFixed(2));
         const tag = ch.isVat ? ' [VAT]' : ch.isWht ? ' [WHT]' : '';
         return `
         <div style="display: flex; justify-content: space-between; font-size:0.8rem;">

@@ -222,6 +222,7 @@ const DEFAULT_STATE = {
     stockEntries: [
         { id: "SE-2026-001", type: "Transfer", date: "2026-07-12", items: [{ itemId: "ITM001", sku: "JMIT-1001-HW", qty: 2 }], sourceWarehouseId: "WH001", targetWarehouseId: "WH002", reason: "Stock replenishment", status: "Submitted" }
     ],
+    stockMovements: [],
     // General Journal Logs
     journalEntries: [
         {
@@ -325,6 +326,11 @@ class Store {
                     this.state.settings.glMappings.inputVatAccount = "1220";
                     this.saveState();
                 }
+                // Migrate: stockMovements array initialized
+                if (!this.state.stockMovements) {
+                    this.state.stockMovements = [];
+                    this.saveState();
+                }
             }
             else {
                 this.state = JSON.parse(JSON.stringify(DEFAULT_STATE));
@@ -421,6 +427,7 @@ class Store {
     getPurchaseReturns() { return this.state.purchaseReturns; }
     getPayments() { return this.state.payments; }
     getStockEntries() { return this.state.stockEntries; }
+    getStockMovements() { return this.state.stockMovements; }
     // RBAC CRUD Getters
     getUsers() { return this.state.users; }
     getRoles() { return this.state.roles; }
@@ -753,6 +760,15 @@ class Store {
     // ============================================
     // === CRUD WORKFLOW APPROVALS ENGINE ===
     // ============================================
+    recordMovement(itemId, date, type, qty, warehouseId, reference, document) {
+        const item = this.getItem(itemId);
+        const balanceAfter = item ? (item.stocks[warehouseId] || 0) : 0;
+        const mov = {
+            id: "MOV-" + Date.now(),
+            itemId, date, type, qty, warehouseId, reference, document, balanceAfter
+        };
+        this.state.stockMovements.push(mov);
+    }
     // --- 1. SALES ORDER WORKFLOW ---
     // Shared: compute a charge row's total. Rate-only rows (amount 0, rate set)
     // apply the rate % against the reference subtotal.
@@ -884,6 +900,7 @@ class Store {
             newDn.items.forEach(line => {
                 const item = this.getItem(line.itemId);
                 item.stocks[newDn.warehouseId] -= line.qty;
+                this.recordMovement(line.itemId, newDn.date, "OUT", line.qty, newDn.warehouseId, newDn.id, "DN");
             });
             so.status = "Delivered";
         }
@@ -913,6 +930,7 @@ class Store {
         dn.items.forEach(line => {
             const item = this.getItem(line.itemId);
             item.stocks[dn.warehouseId] -= line.qty;
+            this.recordMovement(line.itemId, dn.date, "OUT", line.qty, dn.warehouseId, dn.id, "DN");
         });
         dn.status = "Submitted";
         // Auto update SO status
@@ -1115,30 +1133,46 @@ class Store {
             throw new Error("Posting date falls within a closed fiscal period!");
         const id = "PO-2026-" + String(this.state.purchaseOrders.length + 1).padStart(3, "0");
         const vend = this.state.partners.vendors.find(v => v.id === poData.vendorId);
-        let total = 0;
+        let subtotal = 0;
         const items = poData.items.map(l => {
             const prod = this.getItem(l.itemId);
-            total += prod.cost * l.qty;
+            const lineTotal = (prod ? prod.cost : 0) * Number(l.qty);
+            subtotal += lineTotal;
             return {
                 itemId: l.itemId,
-                sku: prod.sku,
-                name: prod.name,
-                qty: Number(l.qty),
-                cost: prod.cost,
-                uom: l.uom || "pcs"
+                sku: prod ? prod.sku : "?", name: prod ? prod.name : "Unknown",
+                qty: Number(l.qty), cost: prod ? prod.cost : 0, uom: l.uom || "pcs"
             };
         });
+        // Compute charges
+        let tax = Number(poData.taxAmount) || 0;
+        let wht = Number(poData.whtAmount) || 0;
+        let otherChargesTotal = 0;
+        const chargeItems = [];
+        const taggedVat = { amt: 0 };
+        const taggedWht = { amt: 0 };
+        (poData.otherCharges || []).forEach((ch) => {
+            const chTotal = this.computeChargeTotal(ch, subtotal);
+            if (ch.amount > 0 || ch.vatRate > 0) {
+                chargeItems.push({ accountCode: ch.accountCode, amount: ch.amount, vatRate: ch.vatRate, baseOn: ch.baseOn, isVat: ch.isVat, isWht: ch.isWht, total: chTotal });
+                if (ch.isVat)
+                    taggedVat.amt += chTotal;
+                else if (ch.isWht)
+                    taggedWht.amt += chTotal;
+                else
+                    otherChargesTotal += chTotal;
+            }
+        });
+        tax = Math.max(0, tax - taggedVat.amt) + taggedVat.amt;
+        wht = Math.max(0, wht - taggedWht.amt) + taggedWht.amt;
+        const total = subtotal + tax - wht + otherChargesTotal;
         const reqs = this.state.settings.workflowRequirements || {};
         const newPo = {
-            id,
-            companyId: poData.companyId || this.state.settings.activeCompany,
-            vendorName: vend ? vend.name : "Unknown",
-            date,
-            items,
-            currency: poData.currency || "PHP",
-            rate: Number(poData.rate) || 1.0,
-            total,
-            status: (reqs.poApproval === false) ? "Approved" : "Draft"
+            id, companyId: poData.companyId || this.state.settings.activeCompany,
+            vendorId: poData.vendorId, vendorName: vend ? vend.name : "Unknown",
+            date, items, subtotal, tax, wht, otherChargesTotal, otherCharges: chargeItems,
+            currency: poData.currency || "PHP", rate: Number(poData.rate) || 1.0,
+            total, status: (reqs.poApproval === false) ? "Approved" : "Draft"
         };
         this.state.purchaseOrders.push(newPo);
         this.saveState();
@@ -1188,6 +1222,7 @@ class Store {
                     if (!item.stocks[newGrn.warehouseId])
                         item.stocks[newGrn.warehouseId] = 0;
                     item.stocks[newGrn.warehouseId] += line.acceptedQty;
+                    this.recordMovement(line.itemId, newGrn.date, "IN", line.acceptedQty, newGrn.warehouseId, newGrn.id, "GRN");
                 }
             });
             po.status = "Received";
@@ -1211,6 +1246,7 @@ class Store {
                 if (!item.stocks[grn.warehouseId])
                     item.stocks[grn.warehouseId] = 0;
                 item.stocks[grn.warehouseId] += line.acceptedQty;
+                this.recordMovement(line.itemId, grn.date, "IN", line.acceptedQty, grn.warehouseId, grn.id, "GRN");
             }
         });
         grn.status = "Submitted";
@@ -1260,11 +1296,23 @@ class Store {
             });
             const baseAccepted = this.convertToBase(acceptedCost, po.currency);
             const baseRejected = this.convertToBase(rejectedCost, po.currency);
+            const baseTax = this.convertToBase(po.tax || 0, po.currency);
+            const baseWht = this.convertToBase(po.wht || 0, po.currency);
+            let baseOther = 0;
+            (po.otherCharges || []).forEach((ch) => {
+                if (!ch.isVat && !ch.isWht)
+                    baseOther += this.convertToBase(this.computeChargeTotal(ch, po.subtotal || baseAccepted), po.currency);
+            });
             const jeId = "JE-2026-" + String(this.state.journalEntries.length + 1).padStart(4, "0");
             const jeLines = [
                 { code: maps.inventoryAccount, debit: baseAccepted, credit: 0 },
-                { code: maps.apAccount, debit: 0, credit: baseTotal }
+                { code: maps.inputVatAccount || "1220", debit: baseTax, credit: 0 }
             ];
+            if (baseOther > 0) {
+                jeLines.push({ code: maps.opexAccount, debit: baseOther, credit: 0 });
+            }
+            jeLines.push({ code: maps.apAccount, debit: 0, credit: baseTotal + baseWht });
+            jeLines.push({ code: maps.whtLiabilityAccount, debit: 0, credit: baseWht });
             if (baseRejected > 0) {
                 jeLines.push({ code: maps.opexAccount, debit: baseRejected, credit: 0 });
             }
@@ -1308,11 +1356,23 @@ class Store {
         });
         const baseAccepted = this.convertToBase(acceptedCost, po.currency);
         const baseRejected = this.convertToBase(rejectedCost, po.currency);
+        const baseTax = this.convertToBase(po.tax || 0, po.currency);
+        const baseWht = this.convertToBase(po.wht || 0, po.currency);
+        let baseOther = 0;
+        (po.otherCharges || []).forEach((ch) => {
+            if (!ch.isVat && !ch.isWht)
+                baseOther += this.convertToBase(this.computeChargeTotal(ch, po.subtotal || baseAccepted), po.currency);
+        });
         const jeId = "JE-2026-" + String(this.state.journalEntries.length + 1).padStart(4, "0");
         const jeLines = [
             { code: maps.inventoryAccount, debit: baseAccepted, credit: 0 },
-            { code: maps.apAccount, debit: 0, credit: baseTotal }
+            { code: maps.inputVatAccount || "1220", debit: baseTax, credit: 0 }
         ];
+        if (baseOther > 0) {
+            jeLines.push({ code: maps.opexAccount, debit: baseOther, credit: 0 });
+        }
+        jeLines.push({ code: maps.apAccount, debit: 0, credit: baseTotal + baseWht });
+        jeLines.push({ code: maps.whtLiabilityAccount, debit: 0, credit: baseWht });
         if (baseRejected > 0) {
             jeLines.push({ code: maps.opexAccount, debit: baseRejected, credit: 0 });
         }
