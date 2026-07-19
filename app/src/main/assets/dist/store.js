@@ -1396,7 +1396,7 @@ class Store {
             id,
             type: payData.type,
             companyId: payData.companyId || this.state.settings.activeCompany,
-            partnerName: this.getPartner(payData.partnerId).name,
+            partnerName: this.getPartner(payData.partnerId)?.name || payData.partnerId,
             referenceInvoiceId: payData.referenceInvoiceId || "",
             reference: payData.reference,
             date,

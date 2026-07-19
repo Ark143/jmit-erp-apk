@@ -94,7 +94,7 @@ function renderPaymentForm(container) {
     const invoices = type === "Receive" ? store.getSalesInvoices() : store.getPurchaseInvoices();
     const exchangeRates = store.getExchangeRates();
     const activeCompany = store.getActiveCompany();
-    let partnerOptions = partners.map(p => `<option value="${p.id}">${p.name} (TIN: ${p.taxId})</option>`).join("");
+    let partnerOptions = partners.map(p => `<option value="${p.id}">${p.name} (TIN: ${p.taxId || "N/A"})</option>`).join("");
     let invoiceOptions = invoices.map(i => `<option value="${i.id}">${i.id} - ${i.customerName || i.vendorName} (Due: ${formatMoney(i.total)})</option>`).join("");
     container.innerHTML = `
     <div class="card animate-fade-in" style="max-width: 600px; margin: 0 auto;">

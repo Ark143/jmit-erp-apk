@@ -98,7 +98,7 @@ function renderSalesOrderForm(container) {
     const items = store.getItems();
     const rates = store.getExchangeRates();
     const activeCompany = store.getActiveCompany();
-    let customerOptions = customers.map(c => `<option value="${c.id}">${c.name} (TIN: ${c.taxId})</option>`).join("");
+    let customerOptions = customers.map(c => `<option value="${c.id}">${c.name} (TIN: ${c.taxId || "N/A"})</option>`).join("");
     let itemOptions = items.map(i => `<option value="${i.id}">${i.name} (${formatMoney(i.price)})</option>`).join("");
     container.innerHTML = `
     <div class="card animate-fade-in">
@@ -532,7 +532,7 @@ function renderSalesOrderDetails(container, orderId) {
         <div>
           <div style="font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase;">Customer</div>
           <div style="font-size: 1.05rem; font-weight: 700; color: var(--text-primary); margin-top: 4px;">${so.customerName}</div>
-          <div class="text-muted" style="font-size: 0.8rem; margin-top: 2px;">Company TIN: ${store.getPartner(so.customerId).taxId}</div>
+          <div class="text-muted" style="font-size: 0.8rem; margin-top: 2px;">Company TIN: ${store.getPartner(so.customerId)?.taxId || "N/A"}</div>
         </div>
         <div>
           <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
@@ -829,7 +829,7 @@ function renderInvoicesList(container) {
                 <td style="font-family: monospace; font-weight: 700; color: var(--color-primary);">${si.id}</td>
                 <td style="font-family: monospace;">${si.salesOrderId}</td>
                 <td><strong>${si.customerName}</strong></td>
-                <td>${store.getPartner(si.customerId).taxId}</td>
+                <td>${store.getPartner(si.customerId)?.taxId || "N/A"}</td>
                 <td>${si.date}</td>
                 <td style="font-weight: 700;">${formatMoney(si.total)}</td>
                 <td>
@@ -1142,7 +1142,7 @@ function renderDeliveryDetails(container, deliveryId) {
         <div>
           <div style="font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase;">Customer</div>
           <div style="font-size: 1.05rem; font-weight: 700; color: var(--text-primary); margin-top: 4px;">${dn.customerName}</div>
-          <div class="text-muted" style="font-size: 0.8rem; margin-top: 2px;">Company TIN: ${store.getPartner(dn.customerId).taxId}</div>
+          <div class="text-muted" style="font-size: 0.8rem; margin-top: 2px;">Company TIN: ${store.getPartner(dn.customerId)?.taxId || "N/A"}</div>
         </div>
         <div>
           <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
@@ -1245,7 +1245,7 @@ function renderInvoiceDetails(container, invoiceId) {
         <div>
           <div style="font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase;">Customer</div>
           <div style="font-size: 1.05rem; font-weight: 700; color: var(--text-primary); margin-top: 4px;">${si.customerName}</div>
-          <div class="text-muted" style="font-size: 0.8rem; margin-top: 2px;">Company TIN: ${store.getPartner(si.customerId).taxId}</div>
+          <div class="text-muted" style="font-size: 0.8rem; margin-top: 2px;">Company TIN: ${store.getPartner(si.customerId)?.taxId || "N/A"}</div>
         </div>
         <div>
           <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
