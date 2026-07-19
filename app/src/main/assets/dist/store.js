@@ -1421,20 +1421,27 @@ class Store {
         };
         if (reqs.piSubmission === false) {
             const grn = this.state.goodsReceipts.find(g => g.purchaseOrderId === po.id);
-            if (!grn)
-                throw new Error("No warehouse Goods Receipt found for this PO");
-            const maps = this.state.settings.glMappings;
-            const baseTotal = this.convertToBase(po.total, po.currency);
+            // GRN is required for goods, optional for services/direct billing
             let acceptedCost = 0;
             let rejectedCost = 0;
-            grn.items.forEach(line => {
-                const item = this.getItem(line.itemId);
-                const cost = item ? item.cost : 0;
-                acceptedCost += cost * line.acceptedQty;
-                rejectedCost += cost * line.rejectedQty;
-            });
+            if (grn) {
+                grn.items.forEach(line => {
+                    const item = this.getItem(line.itemId);
+                    const cost = item ? item.cost : 0;
+                    acceptedCost += cost * line.acceptedQty;
+                    rejectedCost += cost * line.rejectedQty;
+                });
+            }
+            else {
+                // No GRN: use PO item costs directly
+                po.items.forEach((item) => {
+                    acceptedCost += (item.cost || 0) * (item.qty || 0);
+                });
+            }
             const baseAccepted = this.convertToBase(acceptedCost, po.currency);
             const baseRejected = this.convertToBase(rejectedCost, po.currency);
+            const maps = this.state.settings.glMappings;
+            const baseTotal = this.convertToBase(po.total, po.currency);
             const baseTax = this.convertToBase(po.tax || 0, po.currency);
             const baseWht = this.convertToBase(po.wht || 0, po.currency);
             let baseOther = 0;
@@ -1484,19 +1491,24 @@ class Store {
         if (!po)
             throw new Error("Reference PO not found");
         const grn = this.state.goodsReceipts.find(g => g.purchaseOrderId === po.id);
-        if (!grn)
-            throw new Error("No warehouse Goods Receipt found for this PO");
+        // GRN optional for services/direct billing
         const maps = this.state.settings.glMappings;
         const baseTotal = this.convertToBase(po.total, po.currency);
-        // Calculate accepted vs rejected values
         let acceptedCost = 0;
         let rejectedCost = 0;
-        grn.items.forEach(line => {
-            const item = this.getItem(line.itemId);
-            const cost = item ? item.cost : 0;
-            acceptedCost += cost * line.acceptedQty;
-            rejectedCost += cost * line.rejectedQty;
-        });
+        if (grn) {
+            grn.items.forEach(line => {
+                const item = this.getItem(line.itemId);
+                const cost = item ? item.cost : 0;
+                acceptedCost += cost * line.acceptedQty;
+                rejectedCost += cost * line.rejectedQty;
+            });
+        }
+        else {
+            po.items.forEach((item) => {
+                acceptedCost += (item.cost || 0) * (item.qty || 0);
+            });
+        }
         const baseAccepted = this.convertToBase(acceptedCost, po.currency);
         const baseRejected = this.convertToBase(rejectedCost, po.currency);
         const baseTax = this.convertToBase(po.tax || 0, po.currency);
@@ -1611,17 +1623,27 @@ class Store {
             rate: Number(payData.rate) || 1.0,
             status: (reqs.paymentSubmission === false) ? "Posted" : "Draft"
         };
-        // Always update invoice status when payment references an invoice
+        // Always update invoice status + cascade to PO/SO when payment references an invoice
         if (payData.referenceInvoiceId) {
             if (payData.type === "Receive") {
                 const inv = this.state.salesInvoices.find(s => s.id === payData.referenceInvoiceId);
-                if (inv)
+                if (inv) {
                     inv.status = "Paid";
+                    // Cascade: if SI is paid, close the linked SO
+                    const so = this.state.salesOrders.find(s => s.id === inv.salesOrderId);
+                    if (so)
+                        so.status = "Closed";
+                }
             }
             else {
                 const inv = this.state.purchaseInvoices.find(p => p.id === payData.referenceInvoiceId);
-                if (inv)
+                if (inv) {
                     inv.status = "Paid";
+                    // Cascade: if PI is paid, close the linked PO
+                    const po = this.state.purchaseOrders.find(p => p.id === inv.purchaseOrderId);
+                    if (po)
+                        po.status = "Closed";
+                }
             }
         }
         if (reqs.paymentSubmission === false) {
@@ -1686,8 +1708,12 @@ class Store {
             ];
             if (pay.referenceInvoiceId) {
                 const inv = this.state.salesInvoices.find(s => s.id === pay.referenceInvoiceId);
-                if (inv)
+                if (inv) {
                     inv.status = "Paid";
+                    const so = this.state.salesOrders.find(s => s.id === inv.salesOrderId);
+                    if (so)
+                        so.status = "Closed";
+                }
             }
         }
         else {
@@ -1697,8 +1723,12 @@ class Store {
             ];
             if (pay.referenceInvoiceId) {
                 const inv = this.state.purchaseInvoices.find(p => p.id === pay.referenceInvoiceId);
-                if (inv)
+                if (inv) {
                     inv.status = "Paid";
+                    const po = this.state.purchaseOrders.find(p => p.id === inv.purchaseOrderId);
+                    if (po)
+                        po.status = "Closed";
+                }
             }
         }
         this.postJournalEntry({
